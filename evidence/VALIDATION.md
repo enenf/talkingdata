@@ -31,4 +31,4 @@
 - 真实工具环境检查：实际执行 Python 断言，确认 shell 无 `MODEL_API_KEY` / `WORKBENCH_MODEL_KEY`，且 Python、Node、apply_patch 在 PATH 中可用，退出码 0。见 `environment-check.json`。
 - 工作台浏览器检查：会话切换与恢复、执行记录、Markdown 表格、文件预览、HTML 隔离预览及生成网页交互，见本目录截图。
 
-本机 Docker CLI 和 Colima 已安装，虚拟机镜像因网络缓慢仍在下载；不将本机容器运行标为通过。Docker 的已完成实际构建/启动证据来自上面的 Linux CI。
+本机 Docker CLI 和 Colima 已安装，虚拟机镜像下载因网络缓慢未完成，已停止该准备进程；不将本机容器运行标为通过。Docker 的已完成实际构建/启动证据来自上面的 Linux CI。

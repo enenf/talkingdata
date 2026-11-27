@@ -147,35 +147,32 @@ def descendants(pid):
 
 
 def end_process(proc):
-    if proc is not None:
-        targets = descendants(proc.pid)
-        groups = set()
+    if proc is None:
+        return
+    # Freeze before enumeration: otherwise a tool can fork/setsid between the
+    # process-tree snapshot and termination, keeping stdout alive as an orphan.
+    targets = {proc.pid}
+    for _ in range(16):
         for pid in targets:
             try:
-                group = os.getpgid(pid)
-                if group != os.getpgrp():
-                    groups.add(group)
+                os.kill(pid, signal.SIGSTOP)
             except ProcessLookupError:
                 pass
-        groups.add(proc.pid)
         try:
-            for group in groups:
-                try:
-                    os.killpg(group, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
-        except PermissionError:
-            proc.terminate()
-        # Also reap tools that outlive the CLI leader.
-        def kill():
-            for group in groups:
-                try:
-                    os.killpg(group, signal.SIGKILL)
-                except (ProcessLookupError, PermissionError):
-                    pass
-        timer = threading.Timer(2, kill)
-        timer.daemon = True
-        timer.start()
+            found = descendants(proc.pid)
+        except Exception:
+            break
+        new = found - targets
+        if not new:
+            break
+        targets.update(new)
+    # All discovered parents are stopped, so normal tools cannot fork away.
+    # Cancellation intentionally makes no promise to flush or roll back files.
+    for pid in sorted(targets, reverse=True):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
 
 def worker(sid, rid, state):
