@@ -1,0 +1,15 @@
+{
+  "source_rows": 6,
+  "revenue": "72000",
+  "cost": "45000",
+  "gross_profit": "27000",
+  "gross_margin": "37.5%",
+  "checks": [
+    "source recomputation",
+    "summary total row",
+    "channel rows",
+    "report and executive key totals",
+    "gross vs net profit disclaimer"
+  ],
+  "result": "passed"
+}

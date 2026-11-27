@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang='zh-CN'>
+<head>
+<meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>费用分摊计算器</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:24px;font:16px/1.6 system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;background:#f4f6f8;color:#1f2933}
+.card{max-width:420px;margin:0 auto;background:#fff;padding:24px;border-radius:14px;box-shadow:0 6px 20px rgba(0,0,0,.08)}
+h1{margin:0 0 4px;font-size:22px}
+.sub{margin:0 0 16px;font-size:13px;color:#6b7280}
+label{display:block;margin:12px 0 6px;font-size:14px;color:#374151}
+input{width:100%;padding:10px 12px;font-size:16px;border:1px solid #d1d5db;border-radius:8px;background:#fff;color:#111}
+input:focus{outline:2px solid #2563eb;border-color:#2563eb}
+.btns{display:flex;gap:10px;margin-top:18px}
+button{flex:1;padding:11px;font-size:16px;font-weight:600;border:0;border-radius:8px;cursor:pointer}
+button[type=submit]{color:#fff;background:#2563eb}
+button[type=submit]:hover{background:#1d4ed8}
+button[type=button]{color:#374151;background:#e5e7eb}
+button[type=button]:hover{background:#d1d5db}
+#result{margin-top:18px;padding:14px;border-radius:10px;background:#f3f4f6;min-height:64px}
+#result.ok{background:#ecfdf5;color:#065f46}
+#result.err{background:#fef2f2;color:#b91c1c}
+.amount{font-size:26px;font-weight:700}
+.note{margin-top:4px;font-size:13px;opacity:.9}
+.list{margin:14px 0 0;padding:0;list-style:none;border-top:1px dashed #cbd5e1}
+.list li{display:flex;justify-content:space-between;padding:9px 2px;border-bottom:1px dashed #e5e7eb;font-size:15px}
+.list li b{font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div class='card'>
+  <h1>费用分摊计算器</h1>
+  <p class='sub'>按“分”精确计算，余数从第一人开始分配，合计与原金额完全一致。完全离线运行，数据不外传。</p>
+  <form id='form' novalidate>
+    <label for='total'>总金额（元）</label>
+    <input id='total' type='text' inputmode='decimal' placeholder='例如 100 或 10.01' autocomplete='off'>
+    <label for='people'>人数</label>
+    <input id='people' type='text' inputmode='numeric' placeholder='例如 3' autocomplete='off'>
+    <div class='btns'>
+      <button type='submit'>计算</button>
+      <button type='button' id='reset'>重置</button>
+    </div>
+  </form>
+  <div id='result'><div class='amount' id='per'>—</div><div class='note' id='note'>等待输入…</div></div>
+  <ol id='list' class='list'></ol>
+</div>
+<script>
+function parseMoney(raw){
+  const s=String(raw==null?'':raw).trim().replace(/,/g,'');
+  if(s==='')return{ok:false,msg:'请输入总金额'};
+  if(s.charAt(0)==='-')return{ok:false,msg:'总金额不能为负数'};
+  if(!/^\d*\.?\d*$/.test(s)||!/\d/.test(s))return{ok:false,msg:'请输入有效的数字'};
+  const p=s.split('.');
+  if((p[1]||'').length>2)return{ok:false,msg:'金额最多保留两位小数'};
+  const cents=parseInt(p[0]||'0',10)*100+parseInt((p[1]||'').padEnd(2,'0'),10);
+  return Number.isSafeInteger(cents)?{ok:true,cents:cents}:{ok:false,msg:'金额过大，无法精确计算'};
+}
+function parsePeople(raw){
+  const s=String(raw==null?'':raw).trim();
+  if(s==='')return{ok:false,msg:'请输入人数'};
+  if(/^\d+$/.test(s)){
+    const n=parseInt(s,10);
+    if(n<=0)return{ok:false,msg:'人数必须大于 0'};
+    if(n>999)return{ok:false,msg:'人数不能超过 999'};
+    return{ok:true,n:n};
+  }
+  if(/^\d*\.?\d+$/.test(s))return{ok:false,msg:'人数必须是整数'};
+  return{ok:false,msg:'请输入有效的数字'};
+}
+function split(cents,people){
+  const base=Math.floor(cents/people),rem=cents-base*people,out=[];
+  for(let i=0;i<people;i++)out.push(base+(i<rem?1:0));
+  return out;
+}
+const fmt=c=>'¥'+(c/100).toFixed(2);
+const el={form:document.getElementById('form'),total:document.getElementById('total'),people:document.getElementById('people'),result:document.getElementById('result'),per:document.getElementById('per'),note:document.getElementById('note'),list:document.getElementById('list'),reset:document.getElementById('reset')};
+function render(){
+  const t=el.total.value.trim(),p=el.people.value.trim();
+  el.list.innerHTML='';
+  if(t===''&&p===''){el.result.className='';el.per.textContent='—';el.note.textContent='等待输入…';return;}
+  const m=parseMoney(t),q=parsePeople(p);
+  const msg=!m.ok?m.msg:(!q.ok?q.msg:'');
+  if(msg){el.result.className='err';el.per.textContent='—';el.note.textContent=msg;return;}
+  const arr=split(m.cents,q.n),base=Math.floor(m.cents/q.n),rem=m.cents%q.n;
+  el.result.className='ok';
+  el.per.textContent=fmt(base);
+  el.note.textContent=rem===0?('共 '+q.n+' 人平摊，每人应付 '+fmt(base)+'，合计 '+fmt(m.cents)):('共 '+q.n+' 人平摊，前 '+rem+' 人各多付 '+fmt(1)+'，合计 '+fmt(m.cents));
+  el.list.innerHTML=arr.map((c,i)=>'<li><span>第 '+(i+1)+' 人</span><b>'+fmt(c)+'</b></li>').join('');
+}
+el.form.addEventListener('submit',function(e){e.preventDefault();render();});
+el.total.addEventListener('input',render);
+el.people.addEventListener('input',render);
+el.reset.addEventListener('click',function(){el.total.value='';el.people.value='';render();el.total.focus();});
+render();
+</script>
+</body>
+</html>

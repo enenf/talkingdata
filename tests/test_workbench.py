@@ -81,12 +81,54 @@ class WorkbenchTests(unittest.TestCase):
         self.assertIn("栖点".encode(), self.req("/")[1])
         self.assertIn("script-src 'self'", self.req("/")[2]["Content-Security-Policy"])
 
+    def test_auth_cookie_supports_unicode_password(self):
+        cls = type(self)
+        cls.proc.terminate()
+        cls.proc.wait(timeout=10)
+        cls.env["APP_TOKEN"] = "测试;password"
+        cls.start_server()
+        try:
+            self.assertEqual(self.req("/api/config")[0], 401)
+            self.assertEqual(self.req("/api/login", {"token": "wrong"})[0], 401)
+            code, _, headers = self.req("/api/login", {"token": "测试;password"})
+            self.assertEqual(code, 200)
+            self.assertIn("HttpOnly", headers["Set-Cookie"])
+            cookie = headers["Set-Cookie"].split(";")[0]
+            self.assertEqual(self.req("/api/config", headers={"Cookie": cookie})[0], 200)
+        finally:
+            cls.proc.terminate()
+            cls.proc.wait(timeout=10)
+            cls.env["APP_TOKEN"] = ""
+            cls.start_server()
+
+    def test_sse_reconnect_respects_last_event_id(self):
+        sid = self.create()
+        self.req(f"/api/sessions/{sid}/messages", {"content": "SSE replay"})
+        d = self.wait(sid)
+        last = d["events"][-1]["id"]
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=3)
+        connection.request("GET", f"/api/sessions/{sid}/events?after=0", headers={"Last-Event-ID": str(last - 1)})
+        response = connection.getresponse()
+        self.assertEqual(response.status, 200)
+        try:
+            while True:
+                line = response.readline().decode()
+                if line.startswith("data: "):
+                    event = json.loads(line[6:])
+                    self.assertEqual(event["id"], last)
+                    self.assertEqual(event["payload"]["kind"], "done")
+                    break
+        finally:
+            response.close()
+            connection.close()
+
     def test_real_subprocess_lifecycle_and_follow_up(self):
         sid = self.create()
         self.assertEqual(self.req(f"/api/sessions/{sid}/messages", {"content": "first"})[0], 202)
         d = self.wait(sid)
         self.assertEqual(d["runs"][-1]["status"], "completed")
         self.assertEqual([m["role"] for m in d["messages"]], ["user", "assistant"])
+        self.assertEqual(d["messages"][-1]["content"], "Fixture task completed.")
         self.assertTrue(any(e["payload"]["kind"] == "command" for e in d["events"]))
         self.assertEqual(d["files"][0]["path"], "artifacts/result.txt")
         self.req(f"/api/sessions/{sid}/messages", {"content": "second"})
@@ -140,6 +182,33 @@ class WorkbenchTests(unittest.TestCase):
         d = self.wait(sid)
         self.assertEqual(d["runs"][-1]["status"], "failed")
         self.assertIn("provider failure", d["runs"][-1]["error"])
+
+    def test_cancel_stops_detached_tool_process(self):
+        sid = self.create()
+        self.req(f"/api/sessions/{sid}/messages", {"content": "SLEEP_RUN"})
+        pidfile = self.data / "sessions" / sid / "workspace" / "artifacts" / "child.pid"
+        for _ in range(100):
+            if pidfile.exists():
+                break
+            time.sleep(.02)
+        self.assertTrue(pidfile.exists())
+        child = int(pidfile.read_text())
+        self.req(f"/api/sessions/{sid}/cancel", {})
+        self.assertEqual(self.wait(sid)["runs"][-1]["status"], "cancelled")
+        for _ in range(100):
+            if Path("/proc").is_dir():
+                p = Path(f"/proc/{child}/stat")
+                try:
+                    alive = p.read_text().split(") ", 1)[1][0] != "Z"
+                except FileNotFoundError:
+                    alive = False
+            else:
+                r = subprocess.run(["/bin/ps", "-o", "stat=", "-p", str(child)], text=True, capture_output=True)
+                alive = bool(r.stdout.strip()) and not r.stdout.strip().startswith("Z")
+            if not alive:
+                break
+            time.sleep(.03)
+        self.assertFalse(alive, "detached tool survived cancellation")
 
     def test_preview_is_sandboxed(self):
         sid = self.create()

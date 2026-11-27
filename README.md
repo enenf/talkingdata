@@ -2,6 +2,8 @@
 
 一个面向单用户的云端 Agent 助手工作台。把任务交给真实 **Codex CLI 0.162.1**，在浏览器中查看执行进度、上传材料、预览或下载成果，并在不同会话之间继续工作。
 
+![栖点工作台实际界面](evidence/workbench.png)
+
 不是只生成聊天文本：服务端实际启动 `codex exec --json` 子进程，Codex 自己调用工具、执行命令并写文件。页面中的执行记录来自 CLI 的真实 JSONL 事件。
 
 ## 快速开始：Docker
@@ -96,6 +98,10 @@ python3 -B -m unittest discover -s tests -v
 node --check static/app.js
 # 真实模型端到端演示：先启动并配置工作台
 python3 -B scripts/demo.py
+# 导出追加反馈后的现有会话证据
+python3 -B scripts/demo.py --export-only
+# 不需要模型凭据的独立样例复核
+node scripts/verify_demo_calculator.cjs evidence/real-demo/code/artifacts/index.html
 ```
 
 `tests/fake_codex.py` 仅用于可重复的接口和进程生命周期测试，不进入 Docker 镜像，也不用于真实演示。真实演示脚本通过应用 HTTP API 并行创建两个会话，上传虚构 CSV，分别完成网页开发、销售分析，再分别追加修改要求，导出完整对话、命令记录和文件 SHA256。

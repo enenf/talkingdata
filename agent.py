@@ -64,11 +64,8 @@ def launch(workspace: Path, control: Path, messages, bridge_url=None, bridge_tok
         'request_max_retries = 1',
         'stream_max_retries = 1',
         '[shell_environment_policy]',
-        'inherit = "none"',
-        '[shell_environment_policy.set]',
-        'PATH = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"',
-        'HOME = ' + json.dumps(str(control)),
-        'LANG = "en_US.UTF-8"',
+        'inherit = "all"',
+        'include_only = ["PATH", "HOME", "LANG", "TMPDIR"]',
     ])
     (home / "config.toml").write_text(config)
     # Explicit replay is intentionally provider-independent, with a documented bound.
@@ -89,6 +86,7 @@ def launch(workspace: Path, control: Path, messages, bridge_url=None, bridge_tok
     env = {k: v for k, v in os.environ.items() if k in (
         "PATH", "SYSTEMROOT", "LANG", "LC_ALL", "TMPDIR", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"
     )}
+    env["PATH"] = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
     env.update({"CODEX_HOME": str(home), "HOME": str(control), "WORKBENCH_MODEL_KEY": bridge_token or s["key"], "NO_COLOR": "1"})
     args = [s["binary"], "exec", "--json", "--skip-git-repo-check", "--color", "never"]
     if os.environ.get("RUN_IN_CONTAINER") == "1":

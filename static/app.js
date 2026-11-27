@@ -21,9 +21,37 @@ function markdown(text){
   // Escape first: model output and uploaded content never become trusted HTML.
   const blocks=[];
   let s=esc(text).replace(/```[^\n]*\n([\s\S]*?)```/g,(_,code)=>{blocks.push(`<pre><code>${code}</code></pre>`);return `\n@@BLOCK${blocks.length-1}@@\n`;});
-  s=s.replace(/^#{1,4} (.+)$/gm,'<h3>$1</h3>').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/`([^`\n]+)`/g,'<code>$1</code>');
-  s=s.split('\n\n').map(p=>/^@@BLOCK\d+@@$/.test(p.trim())?p:p.startsWith('<h3>')?p:`<p>${p.replace(/\n/g,'<br>')}</p>`).join('');
-  return s.replace(/@@BLOCK(\d+)@@/g,(_,n)=>blocks[Number(n)]||'');
+  const inline=s=>s.replace(/`([^`\n]+)`/g,'<code>$1</code>').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+  const lines=s.split('\n'),html=[];
+  const cells=line=>line.trim().replace(/^\||\|$/g,'').split('|').map(c=>inline(c.trim()));
+  for(let i=0;i<lines.length;){
+    const line=lines[i].trim();
+    if(!line){i++;continue;}
+    const block=/^@@BLOCK(\d+)@@$/.exec(line);
+    if(block){html.push(blocks[Number(block[1])]||'');i++;continue;}
+    const heading=/^#{1,6}\s+(.+)$/.exec(line);
+    if(heading){html.push(`<h3>${inline(heading[1])}</h3>`);i++;continue;}
+    if(line.includes('|')&&i+1<lines.length&&/^[|:\-\s]+$/.test(lines[i+1])&&lines[i+1].includes('-')){
+      const header=cells(line);i+=2;let rows='';
+      while(i<lines.length&&lines[i].includes('|')&&lines[i].trim()){
+        rows+='<tr>'+cells(lines[i++]).map(c=>`<td>${c}</td>`).join('')+'</tr>';
+      }
+      html.push('<div class="table-wrap"><table><thead><tr>'+header.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>'+rows+'</tbody></table></div>');continue;
+    }
+    const list=/^(?:[-*]|\d+\.)\s+/.test(line);
+    if(list){
+      const ordered=/^\d+\./.test(line),tag=ordered?'ol':'ul';let items='';
+      const pattern=ordered?/^\d+\.\s+/:/^[-*]\s+/;
+      while(i<lines.length&&pattern.test(lines[i].trim()))items+='<li>'+inline(lines[i++].trim().replace(pattern,''))+'</li>';
+      html.push(`<${tag}>${items}</${tag}>`);continue;
+    }
+    if(line.startsWith('&gt;')){html.push('<blockquote>'+inline(line.replace(/^&gt;\s?/,''))+'</blockquote>');i++;continue;}
+    if(/^[-*_]{3,}$/.test(line)){html.push('<hr>');i++;continue;}
+    const paragraph=[inline(lines[i++])];
+    while(i<lines.length&&lines[i].trim()&&!/^(?:#{1,6}\s|[-*]\s|\d+\.\s|@@BLOCK|&gt;)/.test(lines[i]))paragraph.push(inline(lines[i++]));
+    html.push('<p>'+paragraph.join('<br>')+'</p>');
+  }
+  return html.join('');
 }
 function renderSessions(){
   const q=$('search').value.trim().toLowerCase();
@@ -42,8 +70,7 @@ function renderFiles(){
 }
 function eventHTML(e){
   const p=e.payload;
-  if(p.kind==='answer')return '';
-  const names={status:'助手状态',command:'命令执行',files:'文件变更',error:'执行异常',done:labels[p.status]||'执行结束',usage:'本次用量',log:'运行日志'};
+  const names={status:'助手状态',command:'命令执行',files:'文件变更',answer:'助手进展',error:'执行异常',done:labels[p.status]||'执行结束',usage:'本次用量',log:'运行日志'};
   return `<div class="event ${esc(p.kind)}"><div class="event-title">${names[p.kind]||'执行事件'}<span>${timeLabel(e.created_at)}</span></div>${p.kind==='command'?`<code>${esc(p.text)}</code><details ${p.exit_code?'open':''}><summary>${p.status==='completed'?`退出码 ${p.exit_code??0}`:p.status==='failed'?'执行失败':'执行中'}</summary><pre>${esc(p.output||'暂无输出')}</pre></details>`:`<p>${esc(p.text).slice(0,24000)}</p>`}</div>`;
 }
 function renderActivity(){
@@ -53,7 +80,13 @@ function renderActivity(){
 function renderMessages(){
   const messages=state.detail?.messages||[];
   $('welcome').classList.toggle('hidden',messages.length>0);
-  $('messages').innerHTML=messages.map(m=>`<article class="message ${m.role}"><div class="message-avatar">${m.role==='user'?'你':'栖'}</div><div class="message-body"><div class="message-label">${m.role==='user'?'你':'栖点助手'} · ${timeLabel(m.created_at)}</div><div class="message-content">${m.role==='user'?esc(m.content):markdown(m.content)}</div></div></article>`).join('');
+  let turn=-1;
+  $('messages').innerHTML=messages.map(m=>{
+    if(m.role==='user')turn++;
+    const run=state.detail?.runs[turn];
+    const badge=m.role==='user'&&run&&run.status!=='running'?`<div class="turn-result ${run.status==='completed'?'success':'warning'}">${esc(labels[run.status]||run.status)}${run.error?' · '+esc(run.error):''}</div>`:'';
+    return `<article class="message ${m.role}"><div class="message-avatar">${m.role==='user'?'你':'栖'}</div><div class="message-body"><div class="message-label">${m.role==='user'?'你':'栖点助手'} · ${timeLabel(m.created_at)}</div><div class="message-content">${m.role==='user'?esc(m.content):markdown(m.content)}</div>${badge}</div></article>`;
+  }).join('');
 }
 function renderStatus(){
   const active=running(), run=state.detail?.runs.at(-1);
@@ -80,13 +113,14 @@ async function selectSession(id){
 }
 function connect(id){
   state.source?.close();const source=new EventSource(endpoint('events',id)+`?after=${state.lastEvent}`);state.source=source;
+  source.onopen=()=>{if(state.selected===id&&running())$('run-status').innerHTML='<span class="pulse"></span> 助手正在执行任务 · 进度连接正常';};
   source.onmessage=async message=>{
     if(state.selected!==id)return;
     const e=JSON.parse(message.data);
     if(e.id<=state.lastEvent)return;state.lastEvent=e.id;state.detail.events.push(e);
     const nearBottom=$('conversation').scrollHeight-$('conversation').scrollTop-$('conversation').clientHeight<140;
     if(e.payload.kind==='answer'){
-      $('live').classList.remove('hidden');const text=document.createElement('div');text.className='live-text';text.textContent=e.payload.text;$('live').append(text);if(nearBottom)scrollBottom();
+      $('live').classList.remove('hidden');const text=document.createElement('div');text.className='live-text';text.textContent=e.payload.text;$('live').replaceChildren(text);if(nearBottom)scrollBottom();
     }
     if(e.payload.kind==='status')$('run-status').innerHTML='<span class="pulse"></span> '+esc(e.payload.text);
     renderActivity();
@@ -129,8 +163,8 @@ async function preview(path){
   if(/\.html?$/i.test(path)){
     const iframe=document.createElement('iframe');iframe.title='隔离成果预览';iframe.setAttribute('sandbox','allow-scripts');iframe.src=url;$('preview-content').append(iframe);
   }else{
-    const pre=document.createElement('pre');pre.textContent='正在加载…';$('preview-content').append(pre);
-    try{const r=await fetch(url);if(!r.ok)throw new Error('预览加载失败');pre.textContent=await r.text();}catch(e){pre.textContent=e.message;}
+    const content=document.createElement(/\.md$/i.test(path)?'div':'pre');content.className=/\.md$/i.test(path)?'markdown-preview message-content':'';content.textContent='正在加载…';$('preview-content').append(content);
+    try{const r=await fetch(url);if(!r.ok)throw new Error('预览加载失败');const text=await r.text();if(/\.md$/i.test(path))content.innerHTML=markdown(text);else content.textContent=text;}catch(e){content.textContent=e.message;}
   }
 }
 async function boot(){

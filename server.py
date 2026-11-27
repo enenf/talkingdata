@@ -119,18 +119,60 @@ def emit(sid, rid, payload):
                   (sid, rid, json.dumps(payload, ensure_ascii=False), now()))
 
 
+def descendants(pid):
+    """Include detached tool sessions, not just the CLI's process group."""
+    parents = {}
+    if Path("/proc").is_dir():
+        for p in Path("/proc").glob("[0-9]*"):
+            try:
+                for line in (p / "status").read_text().splitlines():
+                    if line.startswith("PPid:"):
+                        parents[int(p.name)] = int(line.split()[1])
+                        break
+            except (OSError, ValueError):
+                pass
+    else:
+        import subprocess
+        result = subprocess.run(["/bin/ps", "-axo", "pid=,ppid="], capture_output=True, text=True, timeout=3)
+        for line in result.stdout.splitlines():
+            fields = line.split()
+            if len(fields) == 2:
+                parents[int(fields[0])] = int(fields[1])
+    found = {pid}
+    while True:
+        more = {child for child, parent in parents.items() if parent in found}
+        if more.issubset(found):
+            return found
+        found.update(more)
+
+
 def end_process(proc):
     if proc is not None:
-        try:
-            os.killpg(proc.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            return
-        # Also reap tools that outlive the CLI leader.
-        def kill():
+        targets = descendants(proc.pid)
+        groups = set()
+        for pid in targets:
             try:
-                os.killpg(proc.pid, signal.SIGKILL)
+                group = os.getpgid(pid)
+                if group != os.getpgrp():
+                    groups.add(group)
             except ProcessLookupError:
                 pass
+        groups.add(proc.pid)
+        try:
+            for group in groups:
+                try:
+                    os.killpg(group, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+        except PermissionError:
+            proc.terminate()
+        # Also reap tools that outlive the CLI leader.
+        def kill():
+            for group in groups:
+                try:
+                    os.killpg(group, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
         timer = threading.Timer(2, kill)
         timer.daemon = True
         timer.start()
@@ -203,7 +245,7 @@ def worker(sid, rid, state):
             with db() as c:
                 if answers:
                     c.execute("INSERT INTO messages(session_id,role,content,created_at) VALUES(?,?,?,?)",
-                              (sid, "assistant", "\n\n".join(answers), now()))
+                              (sid, "assistant", answers[-1], now()))
                 c.execute("UPDATE runs SET status=?,finished_at=?,error=? WHERE id=?", (status, now(), error, rid))
                 c.execute("UPDATE sessions SET updated_at=? WHERE id=?", (now(), sid))
             emit(sid, rid, {"kind": "done", "status": status, "text": error or "任务完成，成果已保存。"})
@@ -212,6 +254,12 @@ def worker(sid, rid, state):
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+
+    def handle(self):
+        try:
+            super().handle()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def log_message(self, *_):
         pass  # No credentials or user prompts in access logs.
@@ -250,7 +298,7 @@ class Handler(BaseHTTPRequestHandler):
             import hmac
             cookies = self.headers.get("Cookie", "")
             supplied = next((c.strip()[len("workbench_token="):] for c in cookies.split(";") if c.strip().startswith("workbench_token=")), "")
-            if not hmac.compare_digest(token, unquote(supplied)):
+            if not hmac.compare_digest(token.encode(), unquote(supplied).encode()):
                 self.send(401, {"error": "请先输入访问密码"})
                 return False
         return True
@@ -305,7 +353,7 @@ class Handler(BaseHTTPRequestHandler):
                 if origin and urlparse(origin).netloc != self.headers.get("Host"):
                     return self.send(403, {"error": "禁止跨站请求"})
                 token = str(self.body().get("token", ""))
-                if not hmac.compare_digest(os.environ.get("APP_TOKEN", ""), token):
+                if not hmac.compare_digest(os.environ.get("APP_TOKEN", "").encode(), token.encode()):
                     return self.send(401, {"error": "密码不正确"})
                 return self.send(200, {"ok": True}, headers={"Set-Cookie": "workbench_token=" + quote(token, safe="") + "; HttpOnly; SameSite=Strict; Path=/"})
             if not self.allowed():

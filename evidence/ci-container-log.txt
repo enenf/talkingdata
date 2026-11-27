@@ -1,0 +1,6 @@
+verify	Build real Codex container	2026-11-27T05:49:32.8397219Z #12 exporting to image
+verify	Smoke test container, non-root user and persistence	2026-11-27T05:49:57.1386075Z ^[[36;1mID=$(curl -fsS -X POST -H 'Content-Type: application/json' --data '{"title":"Container persistence"}' http://127.0.0.1:8080/api/sessions | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')^[[0m
+verify	Smoke test container, non-root user and persistence	2026-11-27T05:49:57.1388124Z ^[[36;1mcurl -fsS "http://127.0.0.1:8080/api/sessions/$ID" | python3 -c 'import json,sys; assert json.load(sys.stdin)["title"]=="Container persistence"'^[[0m
+verify	Smoke test container, non-root user and persistence	2026-11-27T05:49:59.7640681Z {"ok": true}{"ok": true}codex-cli 0.162.1
+verify	Smoke test container, non-root user and persistence	2026-11-27T05:50:01.5894057Z {"ok": true}Agent Desk listening on http://127.0.0.1:8080
+verify	Smoke test container, non-root user and persistence	2026-11-27T05:50:01.5894528Z Agent Desk listening on http://127.0.0.1:8080

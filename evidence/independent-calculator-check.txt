@@ -1,0 +1,18 @@
+PASS 100 / 3
+PASS 0 / 2
+PASS 10.01 / 2
+PASS invalid dot amount
+PASS unsafe integer amount rejected
+PASS invalid amount abc
+PASS invalid amount NaN
+PASS invalid amount Infinity
+PASS invalid amount -1
+PASS invalid amount 1.005
+PASS invalid people 0
+PASS invalid people -1
+PASS invalid people 2.5
+PASS invalid people abc
+PASS sum invariant across 1000 deterministic cases
+PASS remainder note says one cent extra per person
+PASS reset returns to initial state
+Independent review: 17 passed, 0 failed

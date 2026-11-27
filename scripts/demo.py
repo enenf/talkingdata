@@ -33,6 +33,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", default="http://127.0.0.1:8080")
     parser.add_argument("--out", default="evidence/real-demo")
+    parser.add_argument("--export-only", action="store_true", help="Re-export existing manifest sessions after additional review turns")
     args = parser.parse_args()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -62,20 +63,27 @@ def main():
             time.sleep(2)
         raise TimeoutError("demo run timed out")
 
-    code_id = request("/api/sessions", {"title": "费用分摊器 · 代码开发"})["id"]
-    report_id = request("/api/sessions", {"title": "销售复盘 · 材料分析"})["id"]
-    request(f"/api/sessions/{report_id}/upload", {"name": "sales.csv", "data": base64.b64encode(CSV.encode()).decode()})
-    manifest = {"model": config["model"], "cli": config["cli"], "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "sessions": {"code": code_id, "report": report_id}, "synthetic_input": True}
-    (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2))
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = [pool.submit(turn, code_id, CODE), pool.submit(turn, report_id, REPORT)]
-        for f in futures:
-            f.result()
-        futures = [pool.submit(turn, code_id, CODE_FOLLOWUP), pool.submit(turn, report_id, REPORT_FOLLOWUP)]
-        for f in futures:
-            f.result()
+    if args.export_only:
+        manifest = json.loads((out / "manifest.json").read_text())
+    else:
+        code_id = request("/api/sessions", {"title": "费用分摊器 · 代码开发"})["id"]
+        report_id = request("/api/sessions", {"title": "销售复盘 · 材料分析"})["id"]
+        request(f"/api/sessions/{report_id}/upload", {"name": "sales.csv", "data": base64.b64encode(CSV.encode()).decode()})
+        manifest = {"model": config["model"], "cli": config["cli"], "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "sessions": {"code": code_id, "report": report_id}, "synthetic_input": True}
+        (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2))
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(turn, code_id, CODE), pool.submit(turn, report_id, REPORT)]
+            for f in futures:
+                f.result()
+            futures = [pool.submit(turn, code_id, CODE_FOLLOWUP), pool.submit(turn, report_id, REPORT_FOLLOWUP)]
+            for f in futures:
+                f.result()
+    manifest["runs"] = {}
     for name, sid in manifest["sessions"].items():
         d = request(f"/api/sessions/{sid}")
+        if any(r["status"] == "running" for r in d["runs"]):
+            raise RuntimeError("Cannot export while a task is still running")
+        manifest["runs"][name] = [{k: r[k] for k in ("id", "status", "started_at", "finished_at")} for r in d["runs"]]
         transcript = json.dumps(d, ensure_ascii=False, indent=2)
         transcript = transcript.replace(str(Path.cwd() / "data"), "[DATA_DIR]").replace(str(Path.home()), "[HOME]")
         (out / f"{name}-transcript.json").write_text(transcript)
