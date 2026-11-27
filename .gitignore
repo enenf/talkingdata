@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+data/
+__pycache__/
+*.pyc
+.DS_Store
+node_modules/
+work/
+evidence/real-demo/failed-*.json

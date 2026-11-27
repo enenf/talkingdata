@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#172820"><title>栖点 · Agent Desk</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%232d604b'/%3E%3Cpath d='M10 25 20 10l10 15M15 22h10' stroke='%23fff' stroke-width='3' fill='none'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" aria-label="会话导航">
+    <a class="brand" href="/"><span class="brand-icon">栖</span><span>栖点<span class="brand-sub">AGENT DESK</span></span></a>
+    <button id="new-session" class="new-session"><span>＋</span> 新建会话 <kbd>N</kbd></button>
+    <label class="search"><span>⌕</span><input id="search" aria-label="搜索会话" placeholder="搜索你的工作…"></label>
+    <div class="section-label">我的工作空间 <span id="session-count">0</span></div>
+    <nav id="sessions" class="sessions" aria-label="历史会话"></nav>
+    <div class="sidebar-foot"><span class="avatar">你</span><div>个人工作台<small>本地保存 · 单用户空间</small></div><span class="online-dot"></span></div>
+  </aside>
+  <main class="main">
+    <header class="topbar"><button id="menu" class="icon-button mobile-menu" aria-label="切换会话导航">☰</button><div class="breadcrumb">工作空间 <span>/</span> <button id="rename" title="重命名会话">新的开始</button></div><span class="private-badge">◈ 私有工作区</span><button id="workspace-toggle" class="workspace-toggle">工作区 ⇥</button></header>
+    <div id="config-banner" class="config-banner hidden" role="status"></div>
+    <div id="conversation" class="conversation" aria-label="对话内容">
+      <section id="welcome" class="welcome">
+        <div class="eyebrow"><span class="sparkle">✳</span> 给想法，一个落脚点</div>
+        <h1>从这里，<br>把事情做成<span>。</span></h1>
+        <p>写一段代码，读一份材料，推进一项工作。<br>助手负责执行，你随时掌握进展。</p>
+        <div class="suggestions">
+          <button data-prompt="请开发一个可离线使用的番茄钟网页，包含开始、暂停、重置和工作/休息切换。保存为 artifacts/index.html，并验证基本逻辑。"><span class="suggest-icon">⌘</span><strong>开发一个小工具</strong><small>从想法到可运行的代码</small><span class="arrow">↗</span></button>
+          <button data-prompt="请分析 uploads/ 中的材料，梳理关键发现、风险和下一步行动，保存为 artifacts/report.md。请先检查文件是否存在，不要虚构数据。"><span class="suggest-icon">▤</span><strong>分析工作材料</strong><small>上传文件，提炼关键信息</small><span class="arrow">↗</span></button>
+        </div>
+        <div class="welcome-note"><span>↺</span> 会话和成果自动保存，下次回来继续。</div>
+      </section>
+      <div id="messages" class="messages"></div>
+      <div id="live" class="live hidden" aria-live="polite"></div>
+    </div>
+    <section class="composer-area" aria-label="输入任务">
+      <div id="run-status" class="run-status hidden" role="status"></div>
+      <div class="composer"><textarea id="prompt" rows="3" placeholder="描述你想完成的工作，或上传材料后提问…" aria-label="任务内容"></textarea><div class="composer-bottom"><button id="upload" class="attach" title="上传文件（单文件最多 10 MB）">＋ <span>添加文件</span></button><span class="composer-hint">Enter 发送 · Shift + Enter 换行</span><button id="cancel" class="cancel hidden">■ 停止</button><button id="send" class="send" aria-label="发送任务">↑</button></div></div>
+      <div class="composer-footer"><span id="model-status"><i></i> 正在检查运行环境</span><span>成果以实际文件为准</span></div>
+    </section>
+  </main>
+  <aside class="inspector" aria-label="工作区成果和执行记录">
+    <header class="inspector-head"><span>工作区</span><span class="tiny-label">WORKSPACE</span><button id="workspace-close" class="workspace-toggle" aria-label="关闭工作区">✕</button></header>
+    <div class="tabs" role="tablist"><button id="files-tab" role="tab" aria-selected="true">成果文件 <span id="file-count">0</span></button><button id="activity-tab" role="tab" aria-selected="false">执行记录</button></div>
+    <section id="files-panel" class="inspector-panel"><div class="file-toolbar"><span>当前会话的全部文件</span><button id="refresh-files" title="刷新文件" aria-label="刷新文件">↻</button></div><div id="files" class="files"></div><a id="download-all" class="download-all hidden">↓ 打包下载工作区</a><div class="workspace-note"><span>◇</span><p>每个会话拥有独立目录。<br>材料在 uploads，成果在 artifacts。</p></div></section>
+    <section id="activity-panel" class="inspector-panel hidden"><div class="activity-intro">真实工具调用与执行结果，随任务更新。</div><div id="activity" class="activity"></div></section>
+    <div class="inspector-foot"><span>◉</span> 关闭页面不会中断正在执行的任务</div>
+  </aside>
+</div>
+<input type="file" id="file-input" hidden multiple>
+<div id="toast" class="toast hidden" role="alert"></div>
+<dialog id="preview-dialog"><div class="dialog-head"><strong id="preview-title">文件预览</strong><div><a id="preview-download">下载原文件 ↗</a><button id="close-preview" aria-label="关闭预览">✕</button></div></div><div id="preview-content"></div><p class="preview-note">HTML 在隔离环境中预览；外部资源、网络请求和表单提交被禁用。</p></dialog>
+<dialog id="login-dialog"><form id="login-form"><h2>进入你的工作台</h2><p>此工作台已设置访问密码。</p><label>访问密码<input id="access-token" type="password" required autocomplete="current-password"></label><button class="primary" type="submit">进入工作台</button><p id="login-error" role="alert"></p></form></dialog>
+<dialog id="rename-dialog"><form id="rename-form"><h2>重命名会话</h2><input id="session-title" aria-label="会话名称" maxlength="80" required><div class="dialog-actions"><button type="button" id="cancel-rename">取消</button><button class="primary" type="submit">保存</button></div></form></dialog>
+</body></html>
